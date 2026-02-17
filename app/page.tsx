@@ -5,41 +5,87 @@ import { supabase } from "../lib/supabase";
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
+  const [bookmarks, setBookmarks] = useState<any[]>([]);
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
 
-  // ✅ Check session on load
+  // ✅ Auth session
   useEffect(() => {
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getSession();
-      setUser(data.session?.user ?? null);
-    };
-
-    checkUser();
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+      if (data.user) fetchBookmarks();
+    });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
+      (_e, session) => setUser(session?.user ?? null)
     );
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // ✅ STEP 2 LOGIN FUNCTION (IMPORTANT)
-  const login = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: "http://localhost:3000/auth/callback",
-      },
-    });
+  // ✅ Fetch bookmarks
+  const fetchBookmarks = async () => {
+    const { data } = await supabase
+      .from("bookmarks")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    setBookmarks(data || []);
   };
 
-  // ✅ UI
+  // ✅ Realtime updates
+  useEffect(() => {
+    if (!user) return;
+
+    fetchBookmarks();
+
+    const channel = supabase
+      .channel("bookmarks")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookmarks" },
+        fetchBookmarks
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
+
+  // ✅ Add bookmark
+  const addBookmark = async () => {
+    if (!title || !url) return;
+
+    await supabase.from("bookmarks").insert({
+      title,
+      url,
+      user_id: user.id,
+    });
+
+    setTitle("");
+    setUrl("");
+  };
+
+  // ✅ Delete bookmark
+  const deleteBookmark = async (id: string) => {
+    await supabase.from("bookmarks").delete().eq("id", id);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  // ✅ Login UI
   if (!user) {
     return (
       <div className="flex h-screen items-center justify-center">
         <button
-          onClick={login}
+          onClick={() =>
+            supabase.auth.signInWithOAuth({
+              provider: "google",
+              options: { redirectTo: window.location.origin },
+            })
+          }
           className="bg-blue-600 text-white px-6 py-3 rounded"
         >
           Login with Google
@@ -48,11 +94,53 @@ export default function Home() {
     );
   }
 
+  // ✅ App UI
   return (
-    <div className="flex h-screen items-center justify-center">
-      <h1 className="text-2xl font-bold">
-        ✅ Logged in as {user.email}
-      </h1>
+    <div className="p-10 max-w-xl mx-auto">
+      <div className="flex justify-between mb-6">
+        <h1 className="text-2xl font-bold">Smart Bookmarks</h1>
+        <button onClick={logout} className="text-red-500">
+          Logout
+        </button>
+      </div>
+
+      <div className="flex gap-2 mb-6">
+        <input
+          placeholder="Title"
+          className="border p-2 w-full"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <input
+          placeholder="URL"
+          className="border p-2 w-full"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <button
+          onClick={addBookmark}
+          className="bg-green-600 text-white px-4"
+        >
+          Add
+        </button>
+      </div>
+
+      {bookmarks.map((b) => (
+        <div
+          key={b.id}
+          className="flex justify-between border p-3 mb-2 rounded"
+        >
+          <a href={b.url} target="_blank" className="text-blue-600">
+            {b.title}
+          </a>
+          <button
+            onClick={() => deleteBookmark(b.id)}
+            className="text-red-500"
+          >
+            Delete
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
