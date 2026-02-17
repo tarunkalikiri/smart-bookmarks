@@ -11,16 +11,24 @@ export default function Home() {
 
   // ✅ Auth session
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
+    const getUser = async () => {
+      const { data } = await supabase.auth.getUser();
       setUser(data.user);
+
       if (data.user) fetchBookmarks();
-    });
+    };
+
+    getUser();
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_e, session) => setUser(session?.user ?? null)
+      (_e, session) => {
+        setUser(session?.user ?? null);
+      }
     );
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   // ✅ Fetch bookmarks
@@ -44,11 +52,13 @@ export default function Home() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bookmarks" },
-        fetchBookmarks
+        () => fetchBookmarks()
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   // ✅ Add bookmark
@@ -70,6 +80,7 @@ export default function Home() {
     await supabase.from("bookmarks").delete().eq("id", id);
   };
 
+  // ✅ Logout
   const logout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -94,7 +105,7 @@ export default function Home() {
     );
   }
 
-  // ✅ App UI
+  // ✅ Main UI
   return (
     <div className="p-10 max-w-xl mx-auto">
       <div className="flex justify-between mb-6">
@@ -130,7 +141,12 @@ export default function Home() {
           key={b.id}
           className="flex justify-between border p-3 mb-2 rounded"
         >
-          <a href={b.url} target="_blank" className="text-blue-600">
+          <a
+            href={b.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600"
+          >
             {b.title}
           </a>
           <button
